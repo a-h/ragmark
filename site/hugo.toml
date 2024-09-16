@@ -1,0 +1,7 @@
+baseURL = 'https://example.org/'
+languageCode = 'en-us'
+title = 'Strategy'
+
+[module]
+[[module.imports]]
+path = 'github.com/alex-shpak/hugo-book'

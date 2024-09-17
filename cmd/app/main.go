@@ -23,9 +23,8 @@ import (
 
 func main() {
 	ctx := context.Background()
-	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	if err := run(ctx, log); err != nil {
-		log.Error("failed", slog.Any("error", err))
+	if err := run(ctx); err != nil {
+		getLogger("error").Error("failed", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
@@ -40,13 +39,53 @@ Commands:
   sync    Sync the Hugo site with the search index.
 `
 
-func run(ctx context.Context, log *slog.Logger) error {
+func getLogger(level string) *slog.Logger {
+	ll := slog.LevelInfo
+	switch level {
+	case "debug":
+		ll = slog.LevelDebug
+	case "info":
+		ll = slog.LevelInfo
+	case "warn":
+		ll = slog.LevelWarn
+	case "error":
+		ll = slog.LevelError
+	}
+	return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: ll,
+	}))
+}
+
+func run(ctx context.Context) error {
 	if len(os.Args) < 2 {
 		fmt.Println(defaultUsage)
 		return fmt.Errorf("no command specified, use 'chat' or 'sync'")
 	}
 
-	log.Info("performing DB migrations")
+	switch os.Args[1] {
+	case "chat":
+		return chat(ctx)
+	case "sync":
+		return sync(ctx)
+	default:
+		return fmt.Errorf("unknown command: %s", os.Args[1])
+	}
+}
+
+func chat(ctx context.Context) (err error) {
+	chatFlags := flag.NewFlagSet("chat", flag.ExitOnError)
+	model := chatFlags.String("model", "mistral-nemo", "The model to chat with.")
+	msg := chatFlags.String("msg", "", "The message to send.")
+	nc := chatFlags.Bool("no-context", false, "Set to skip context retrieval and use the base model")
+	level := chatFlags.String("level", "warn", "The log level to use, set to info for additional logs")
+	if err = chatFlags.Parse(os.Args[2:]); err != nil {
+		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+	if *msg == "" {
+		return fmt.Errorf("no message specified")
+	}
+	log := getLogger(*level)
+
 	databaseURL := db.URL{
 		User:     "admin",
 		Password: "secret",
@@ -54,21 +93,20 @@ func run(ctx context.Context, log *slog.Logger) error {
 		Port:     4001,
 		Secure:   false,
 	}
-	if err := db.Migrate(databaseURL); err != nil {
-		log.Error("migrations failed", slog.Any("error", err))
-		os.Exit(1)
-	}
 
 	log.Info("connecting to database")
 	conn, err := gorqlite.Open(databaseURL.DataSourceName())
 	if err != nil {
-		log.Error("failed to open connection", slog.Any("error", err))
-		os.Exit(1)
+		return fmt.Errorf("failed to open connection: %w", err)
 	}
 	defer conn.Close()
 	queries := db.New(conn)
 
-	// Initialize LLM.
+	log.Info("migrating database schema")
+	if err = db.Migrate(databaseURL); err != nil {
+		return fmt.Errorf("failed to migrate database: %w", err)
+	}
+
 	log.Info("creating LLM client")
 	ollamaURL, err := url.Parse("http://127.0.0.1:11434/")
 	if err != nil {
@@ -77,28 +115,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	httpClient := &http.Client{}
 	oc := ollamaapi.NewClient(ollamaURL, httpClient)
 
-	switch os.Args[1] {
-	case "chat":
-		return chat(ctx, log, queries, oc)
-	case "sync":
-		return sync(ctx, log, queries, oc)
-	default:
-		return fmt.Errorf("unknown command: %s", os.Args[1])
-	}
-}
-
-func chat(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *ollamaapi.Client) (err error) {
-	syncFlags := flag.NewFlagSet("sync", flag.ExitOnError)
-	model := syncFlags.String("model", "mistral-nemo", "The model to chat with.")
-	msg := syncFlags.String("msg", "", "The message to send.")
-	nc := syncFlags.Bool("no-context", false, "Set to skip context retrieval and use the base model")
-	if err = syncFlags.Parse(os.Args[2:]); err != nil {
-		return fmt.Errorf("failed to parse flags: %w", err)
-	}
-	if *msg == "" {
-		return fmt.Errorf("no message specified")
-	}
-
+	log.Info("getting context")
 	var chunks []db.Chunk
 	if !*nc {
 		chunks, err = getContext(ctx, log, queries, oc, *msg)
@@ -191,8 +208,44 @@ func getContext(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *
 	return getChunkContext(ctx, queries, nearest, 10)
 }
 
-func sync(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *ollamaapi.Client) (err error) {
-	log.Info("starting up")
+func sync(ctx context.Context) (err error) {
+	syncFlags := flag.NewFlagSet("sync", flag.ExitOnError)
+	level := syncFlags.String("level", "info", "The log level to use, set to info for additional logs")
+	if err = syncFlags.Parse(os.Args[2:]); err != nil {
+		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+	log := getLogger(*level)
+
+	databaseURL := db.URL{
+		User:     "admin",
+		Password: "secret",
+		Host:     "localhost",
+		Port:     4001,
+		Secure:   false,
+	}
+
+	log.Info("connecting to database")
+	conn, err := gorqlite.Open(databaseURL.DataSourceName())
+	if err != nil {
+		return fmt.Errorf("failed to open connection: %w", err)
+	}
+	defer conn.Close()
+	queries := db.New(conn)
+
+	log.Info("migrating database schema")
+	if err = db.Migrate(databaseURL); err != nil {
+		return fmt.Errorf("failed to migrate database: %w", err)
+	}
+
+	log.Info("creating LLM client")
+	ollamaURL, err := url.Parse("http://127.0.0.1:11434/")
+	if err != nil {
+		return fmt.Errorf("failed to parse LLM URL: %w", err)
+	}
+	httpClient := &http.Client{}
+	oc := ollamaapi.NewClient(ollamaURL, httpClient)
+
+	log.Info("starting process")
 
 	hw, err := hugowalker.New("./site")
 	if err != nil {

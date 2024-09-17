@@ -22,22 +22,21 @@ type Queries struct {
 	now  func() time.Time
 }
 
-type DocumentsUpsertArgs struct {
+type DocumentUpsertArgs struct {
 	Path string `db:"path"`
 }
 
-type DocumentsUpsertResult struct {
-	ID          int64     `db:"rowid"`
+type DocumentUpsertResult struct {
 	Path        string    `db:"path"`
 	LastUpdated time.Time `db:"last_updated"`
 }
 
-// DocumentsUpsert upserts a document. If the document already exists the record will be
+// DocumentUpsert upserts a document. If the document already exists the record will be
 // returned.
 // If the document does not exist, it will be inserted, and the updated flag will be set to true.
-func (q *Queries) DocumentsUpsert(ctx context.Context, args DocumentsUpsertArgs) (doc DocumentsUpsertResult, err error) {
+func (q *Queries) DocumentUpsert(ctx context.Context, args DocumentUpsertArgs) (doc DocumentUpsertResult, err error) {
 	results, err := q.conn.QueryOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
-		Query:     `select rowid, path, last_updated from documents where path = ?`,
+		Query:     `select path, last_updated from document where path = ?`,
 		Arguments: []any{args.Path},
 	})
 	if err != nil {
@@ -45,7 +44,7 @@ func (q *Queries) DocumentsUpsert(ctx context.Context, args DocumentsUpsertArgs)
 	}
 	var hasResult bool
 	for results.Next() {
-		err := results.Scan(&doc.ID, &doc.Path, &doc.LastUpdated)
+		err := results.Scan(&doc.Path, &doc.LastUpdated)
 		if err != nil {
 			return doc, err
 		}
@@ -54,28 +53,27 @@ func (q *Queries) DocumentsUpsert(ctx context.Context, args DocumentsUpsertArgs)
 	if hasResult {
 		return doc, nil
 	}
-	result, err := q.conn.WriteOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
-		Query:     `insert or ignore into documents (path, last_updated) values (?, ?)`,
+	_, err = q.conn.WriteOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
+		Query:     `insert or ignore into document (path, last_updated) values (?, ?)`,
 		Arguments: []any{args.Path, time.Time{}},
 	})
 	if err != nil {
-		return doc, fmt.Errorf("failed to upsert document rowid: %w", err)
+		return doc, fmt.Errorf("failed to upsert document: %w", err)
 	}
-	doc.ID = result.LastInsertID
 	doc.Path = args.Path
 	doc.LastUpdated = time.Time{}
 	return doc, nil
 }
 
-type DocumentsUpdateLastUpdatedArgs struct {
-	ID          int64     `db:"rowid"`
+type DocumentUpdateLastUpdatedArgs struct {
+	Path        string    `db:"path"`
 	LastUpdated time.Time `db:"last_updated"`
 }
 
-func (q *Queries) DocumentsUpdateLastUpdated(ctx context.Context, args DocumentsUpdateLastUpdatedArgs) (err error) {
+func (q *Queries) DocumentUpdateLastUpdated(ctx context.Context, args DocumentUpdateLastUpdatedArgs) (err error) {
 	_, err = q.conn.WriteOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
-		Query:     `update documents set last_updated = ? where rowid = ?`,
-		Arguments: []any{args.LastUpdated, args.ID},
+		Query:     `update document set last_updated = ? where path = ?`,
+		Arguments: []any{args.LastUpdated, args.Path},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upsert document last_updated: %w", err)
@@ -83,19 +81,37 @@ func (q *Queries) DocumentsUpdateLastUpdated(ctx context.Context, args Documents
 	return nil
 }
 
-type DocumentsIndexDeleteArgs struct {
-	DocumentID int64 `db:"document_id"`
+type DocumentFTSUpsertArgs struct {
+	Path    string `db:"path"`
+	Title   string `db:"title"`
+	Text    string `db:"text"`
+	Summary string `db:"summary"`
 }
 
-func (q *Queries) DocumentsIndexDelete(ctx context.Context, args DocumentsIndexDeleteArgs) (err error) {
+func (q *Queries) DocumentFTSUpsert(ctx context.Context, args DocumentFTSUpsertArgs) (err error) {
+	_, err = q.conn.WriteOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
+		Query:     `insert or replace into document_fts (path, title, text, summary) values (?, ?, ?, ?)`,
+		Arguments: []any{args.Path, args.Title, args.Text, args.Summary},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upsert document fts: %w", err)
+	}
+	return nil
+}
+
+type ChunkDeleteArgs struct {
+	Path string `db:"path"`
+}
+
+func (q *Queries) ChunkDelete(ctx context.Context, args ChunkDeleteArgs) (err error) {
 	statements := []gorqlite.ParameterizedStatement{
 		{
-			Query:     `delete from documents_fts where document_id = ?`,
-			Arguments: []any{args.DocumentID},
+			Query:     `delete from chunk_embedding where rowid in (select rowid from chunk where path = ?)`,
+			Arguments: []any{args.Path},
 		},
 		{
-			Query:     `delete from documents_embeddings where rowid = ?`,
-			Arguments: []any{args.DocumentID},
+			Query:     `delete from chunk where path = ?`,
+			Arguments: []any{args.Path},
 		},
 	}
 	results, err := q.conn.WriteParameterizedContext(ctx, statements)
@@ -109,30 +125,35 @@ func (q *Queries) DocumentsIndexDelete(ctx context.Context, args DocumentsIndexD
 	return nil
 }
 
-type DocumentsIndexInsertArgs struct {
-	DocumentID int64     `db:"document_id"`
-	Title      string    `db:"title"`
-	Text       string    `db:"text"`
-	Summary    string    `db:"summary"`
-	Embedding  []float32 `db:"embedding"`
+type Chunk struct {
+	Path      string
+	Index     int
+	Text      string
+	Embedding []float32
 }
 
-func (q *Queries) DocumentsIndexInsert(ctx context.Context, args DocumentsIndexInsertArgs) (err error) {
-	embeddingJSON, err := json.Marshal(args.Embedding)
-	if err != nil {
-		return fmt.Errorf("failed to marshal embedding: %w", err)
-	}
-	statements := []gorqlite.ParameterizedStatement{
-		{
-			Query: `insert into 
-								documents_fts (document_id, title, text, summary)
-							values (?, ?, ?, ?)`,
-			Arguments: []any{args.DocumentID, args.Title, args.Text, args.Summary},
-		},
-		{
-			Query:     "insert into documents_embeddings (rowid, embedding) values (?, ?)",
-			Arguments: []any{args.DocumentID, string(embeddingJSON)},
-		},
+type ChunkInsertArgs struct {
+	Chunks []Chunk
+}
+
+func (q *Queries) ChunkInsert(ctx context.Context, args ChunkInsertArgs) (err error) {
+	statements := make([]gorqlite.ParameterizedStatement, len(args.Chunks)*2)
+	var chunkIndex = 0
+	for _, chunk := range args.Chunks {
+		embeddingJSON, err := json.Marshal(chunk.Embedding)
+		if err != nil {
+			return fmt.Errorf("failed to marshal embedding: %w", err)
+		}
+		statements[chunkIndex] = gorqlite.ParameterizedStatement{
+			Query:     `insert into chunk (path, idx, text) values (?, ?, ?)`,
+			Arguments: []any{chunk.Path, chunk.Index, chunk.Text},
+		}
+		chunkIndex++
+		statements[chunkIndex] = gorqlite.ParameterizedStatement{
+			Query:     `insert into chunk_embedding (rowid, embedding) values (last_insert_rowid(), ?)`,
+			Arguments: []any{string(embeddingJSON)},
+		}
+		chunkIndex++
 	}
 	results, err := q.conn.WriteParameterizedContext(ctx, statements)
 	if err != nil {
@@ -145,113 +166,94 @@ func (q *Queries) DocumentsIndexInsert(ctx context.Context, args DocumentsIndexI
 	return nil
 }
 
-type Document struct {
-	ID          int64     `db:"rowid"`
-	Path        string    `db:"path"`
-	LastUpdated time.Time `db:"last_updated"`
-	Title       string    `db:"title"`
-	Text        string    `db:"text"`
-	Summary     string    `db:"summary"`
-	Embedding   []float32 `db:"embedding"`
+type ChunkSelectArgs struct {
+	Path string
 }
 
-func (q *Queries) DocumentsSelectOne(ctx context.Context, path string) (doc Document, ok bool, err error) {
-	query := gorqlite.ParameterizedStatement{
-		Query: `select
-							d.rowid, d.path, d.last_updated,
-							ds.title, ds.text, ds.summary,
-							vec_to_json(de.embedding) as embedding
-						from
-							documents d
-						inner join
-							documents_fts ds on d.rowid = ds.document_id
-						inner join
-						  documents_embeddings de on d.rowid = de.rowid
-						where d.path = ?`,
-		Arguments: []any{path},
-	}
-	result, err := q.conn.QueryOneParameterized(query)
-	if err != nil {
-		return doc, ok, err
-	}
-	for result.Next() {
-		var embeddingJSON string
-		if err = result.Scan(&doc.ID, &doc.Path, &doc.LastUpdated, &doc.Title, &doc.Text, &doc.Summary, &embeddingJSON); err != nil {
-			return doc, ok, err
-		}
-		if err = json.Unmarshal([]byte(embeddingJSON), &doc.Embedding); err != nil {
-			return doc, ok, fmt.Errorf("failed to unmarshal embedding: %w", err)
-		}
-		ok = true
-	}
-	return doc, ok, nil
-}
-
-func (q *Queries) DocumentsSelectMany(ctx context.Context) (docs []Document, err error) {
+func (q *Queries) ChunkSelect(ctx context.Context, args ChunkSelectArgs) (chunks []Chunk, err error) {
 	query := `select
-							d.rowid, d.path, d.last_updated,
-							ds.title, ds.text, ds.summary,
-							vec_to_json(de.embedding) as embedding
+							c.idx, c.text, vec_to_json(ce.embedding)
 						from
-							documents d
+							chunk c
 						inner join
-							documents_fts ds on d.rowid = ds.document_id;
-						inner join
-							documents_embeddings de on d.rowid = de.rowid;`
-	result, err := q.conn.QueryOneContext(ctx, query)
+							chunk_embedding ce on c.rowid = ce.rowid
+						where
+							c.path = ?
+						order by
+							c.idx;`
+	result, err := q.conn.QueryOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []any{args.Path},
+	})
 	if err != nil {
-		return docs, err
+		return chunks, err
 	}
 	for result.Next() {
-		var doc Document
-		if err = result.Scan(&doc.ID, &doc.Path, &doc.LastUpdated, &doc.Title, &doc.Text, &doc.Summary); err != nil {
-			return docs, err
+		chunk := Chunk{Path: args.Path}
+		var embeddingJSON string
+		if err = result.Scan(&chunk.Index, &chunk.Text, &embeddingJSON); err != nil {
+			return chunks, err
 		}
-		docs = append(docs, doc)
+		if err = json.Unmarshal([]byte(embeddingJSON), &chunk.Embedding); err != nil {
+			return chunks, fmt.Errorf("failed to unmarshal embedding: %w", err)
+		}
+		chunks = append(chunks, chunk)
 	}
-	return docs, nil
+	return chunks, nil
 }
 
-type DocumentSelectNearestResult struct {
-	Document
-	Distance float64 `db:"distance"`
+type ChunkSelectNearestArgs struct {
+	Embedding []float32
+	Limit     int
 }
 
-func (q *Queries) DocumentsSelectNearest(ctx context.Context, embedding []float32, limit int) (docs []DocumentSelectNearestResult, err error) {
-	embeddingInputJSON, err := json.Marshal(embedding)
+type ChunkSelectNearestResult struct {
+	Chunk
+	Distance float64
+}
+
+func (q *Queries) ChunkSelectNearest(ctx context.Context, args ChunkSelectNearestArgs) (chunks []ChunkSelectNearestResult, err error) {
+	embeddingInputJSON, err := json.Marshal(args.Embedding)
 	if err != nil {
-		return docs, fmt.Errorf("failed to marshal embedding: %w", err)
+		return chunks, fmt.Errorf("failed to marshal embedding: %w", err)
 	}
 	stmt := gorqlite.ParameterizedStatement{
 		Query: `with vec_results as (
 							select
 								rowid, embedding, distance
 							from
-								documents_embeddings
+								chunk_embedding
 							where
-								embedding match ? order by distance limit ?
+								embedding match ?
+							order by distance asc
+							limit ?
 						)
 						select
-							d.rowid, d.path, d.last_updated,
-							ds.title, ds.text, ds.summary,
-							vr.distance
-						from vec_results vr
-							inner join
-								documents d on vr.rowid = d.rowid
-							inner join
-								documents_fts ds on d.rowid = ds.document_id;`,
-		Arguments: []any{string(embeddingInputJSON), limit},
+							c.path, c.idx, c.text, vec_to_json(vr.embedding), vr.distance
+						from
+							chunk c
+						inner join
+							vec_results vr on c.rowid = vr.rowid
+						order by vr.distance;`,
+		Arguments: []any{string(embeddingInputJSON), args.Limit},
 	}
 	result, err := q.conn.QueryOneParameterizedContext(ctx, stmt)
 	if err != nil {
-		return docs, err
+		if result.Err != nil {
+			return chunks, result.Err
+		}
+		return chunks, err
 	}
 	for result.Next() {
-		var doc DocumentSelectNearestResult
-		if err = result.Scan(&doc.ID, &doc.Path, &doc.LastUpdated, &doc.Title, &doc.Text, &doc.Summary, &doc.Distance); err != nil {
-			return docs, err
+		var chunk ChunkSelectNearestResult
+		var embeddingJSON string
+		if err = result.Scan(&chunk.Path, &chunk.Index, &chunk.Text, &embeddingJSON, &chunk.Distance); err != nil {
+			return chunks, err
 		}
-		docs = append(docs, doc)
+		if err = json.Unmarshal([]byte(embeddingJSON), &chunk.Embedding); err != nil {
+			return chunks, fmt.Errorf("failed to unmarshal embedding: %w", err)
+		}
+		chunks = append(chunks, chunk)
 	}
-	return docs, nil
+	return chunks, nil
 }

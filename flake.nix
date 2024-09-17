@@ -1,6 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     gomod2nix = {
       url = "github:nix-community/gomod2nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -15,7 +16,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, gomod2nix, gitignore, xc }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, gomod2nix, gitignore, xc }:
     let
       allSystems = [
         "x86_64-linux" # 64-bit Intel/AMD Linux
@@ -24,6 +25,10 @@
         "aarch64-darwin" # 64-bit ARM macOS
       ];
 
+      unstableNixPkgs = system: import nixpkgs-unstable {
+        inherit system;
+      };
+
       forAllSystems = f: nixpkgs.lib.genAttrs allSystems (system: f {
         system = system;
         pkgs = import nixpkgs {
@@ -31,6 +36,11 @@
           overlays = [
             (self: super: {
               rqlite = super.pkgs.callPackage ./rqlite.nix { };
+            })
+            # Use latest version of ollama, because it's a bit more
+            # bleeding edge.
+            (self: super: {
+              ollama = (unstableNixPkgs system).ollama;
             })
           ];
         };
@@ -96,6 +106,8 @@
         # Database tools.
         pkgs.rqlite # Distributed sqlite.
         pkgs.go-migrate # Migrate database schema.
+        # LLM tools.
+        pkgs.ollama
       ];
 
       name = "app";

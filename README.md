@@ -14,6 +14,12 @@ go run cmd/app/main.go sync
 go run cmd/app/main.go chat -msg "How do I migrate from Jekyll?"
 ```
 
+### ollama-serve
+
+```bash
+ollama serve
+```
+
 ### hugo-serve
 
 Dir: site

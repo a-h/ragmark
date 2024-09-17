@@ -1,3 +1,4 @@
-drop table documents;
-drop table documents_fts;
-drop table documents_embeddings;
+drop table document;
+drop table document_fts;
+drop table chunk;
+drop table chunk_embedding;

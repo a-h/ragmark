@@ -87,28 +87,11 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 }
 
-func rag(ctx context.Context, queries *db.Queries, oc *ollamaapi.Client, input string) (docs []db.ChunkSelectNearestResult, err error) {
-	embeddings, err := oc.Embed(ctx, &ollamaapi.EmbedRequest{
-		Model: "mistral-nemo",
-		Input: input,
-	})
-	if err != nil {
-		return docs, fmt.Errorf("failed to get message embeddings: %w", err)
-	}
-	docs, err = queries.ChunkSelectNearest(ctx, db.ChunkSelectNearestArgs{
-		Embedding: embeddings.Embeddings[0],
-		Limit:     10,
-	})
-	if err != nil {
-		return docs, fmt.Errorf("failed to get nearest documents: %w", err)
-	}
-	return docs, nil
-}
-
 func chat(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *ollamaapi.Client) (err error) {
 	syncFlags := flag.NewFlagSet("sync", flag.ExitOnError)
 	model := syncFlags.String("model", "mistral-nemo", "The model to chat with.")
 	msg := syncFlags.String("msg", "", "The message to send.")
+	nc := syncFlags.Bool("no-context", false, "Set to skip context retrieval and use the base model")
 	if err = syncFlags.Parse(os.Args[2:]); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
 	}
@@ -116,14 +99,12 @@ func chat(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *ollama
 		return fmt.Errorf("no message specified")
 	}
 
-	chunks, err := rag(ctx, queries, oc, *msg)
-	if err != nil {
-		return fmt.Errorf("failed to get message embeddings: %w", err)
-	}
-
-	log.Info("found context", slog.Int("count", len(chunks)))
-	if len(chunks) > 0 {
-		log.Info("top result", slog.String("doc", chunks[0].Path), slog.String("text", chunks[0].Text), slog.Float64("distance", chunks[0].Distance))
+	var chunks []db.Chunk
+	if !*nc {
+		chunks, err = getContext(ctx, log, queries, oc, *msg)
+		if err != nil {
+			return err
+		}
 	}
 
 	var sb strings.Builder
@@ -152,6 +133,62 @@ func chat(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *ollama
 		return nil
 	}
 	return oc.Chat(ctx, req, fn)
+}
+
+func getNearestChunks(ctx context.Context, queries *db.Queries, oc *ollamaapi.Client, input string) (chunks []db.ChunkSelectNearestResult, err error) {
+	embeddings, err := oc.Embed(ctx, &ollamaapi.EmbedRequest{
+		Model: "mistral-nemo",
+		Input: input,
+	})
+	if err != nil {
+		return chunks, fmt.Errorf("failed to get message embeddings: %w", err)
+	}
+	chunks, err = queries.ChunkSelectNearest(ctx, db.ChunkSelectNearestArgs{
+		Embedding: embeddings.Embeddings[0],
+		Limit:     10,
+	})
+	if err != nil {
+		return chunks, fmt.Errorf("failed to get nearest documents: %w", err)
+	}
+	return chunks, nil
+}
+
+func getChunkContext(ctx context.Context, queries *db.Queries, chunks []db.ChunkSelectNearestResult, n int) (result []db.Chunk, err error) {
+	previousChunks := map[string]struct{}{}
+	for _, chunk := range chunks {
+		chunkRange, err := queries.ChunkSelectRange(ctx, db.ChunkSelectRangeArgs{
+			Path:       chunk.Path,
+			StartIndex: chunk.Index - n,
+			EndIndex:   chunk.Index + n,
+		})
+		if err != nil {
+			return result, fmt.Errorf("failed to select chunk range: %w", err)
+		}
+		for _, chunkInRange := range chunkRange {
+			cacheKey := fmt.Sprintf("%s_%d", chunkInRange.Path, chunkInRange.Index)
+			if _, previouslyAdded := previousChunks[cacheKey]; previouslyAdded {
+				continue
+			}
+			result = append(result, chunkInRange)
+			previousChunks[cacheKey] = struct{}{}
+		}
+	}
+	return result, nil
+}
+
+func getContext(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *ollamaapi.Client, msg string) (chunks []db.Chunk, err error) {
+	nearest, err := getNearestChunks(ctx, queries, oc, msg)
+	if err != nil {
+		return chunks, fmt.Errorf("failed to get message embeddings: %w", err)
+	}
+
+	log.Info("found nearest chunks", slog.Int("count", len(nearest)))
+	for _, result := range nearest {
+		log.Info("result", slog.String("doc", result.Path), slog.Float64("distance", result.Distance), slog.Int("index", result.Index))
+	}
+
+	log.Info("getting surrounding context for chunks")
+	return getChunkContext(ctx, queries, nearest, 10)
 }
 
 func sync(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *ollamaapi.Client) (err error) {

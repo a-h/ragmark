@@ -202,6 +202,44 @@ func (q *Queries) ChunkSelect(ctx context.Context, args ChunkSelectArgs) (chunks
 	return chunks, nil
 }
 
+type ChunkSelectRangeArgs struct {
+	Path       string
+	StartIndex int
+	EndIndex   int
+}
+
+func (q *Queries) ChunkSelectRange(ctx context.Context, args ChunkSelectRangeArgs) (chunks []Chunk, err error) {
+	query := `select
+							c.idx, c.text, vec_to_json(ce.embedding)
+						from
+							chunk c
+						inner join
+							chunk_embedding ce on c.rowid = ce.rowid
+						where
+							c.path = ? and c.idx >= ? and c.idx <= ?
+						order by
+							c.idx;`
+	result, err := q.conn.QueryOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
+		Query:     query,
+		Arguments: []any{args.Path, args.StartIndex, args.EndIndex},
+	})
+	if err != nil {
+		return chunks, err
+	}
+	for result.Next() {
+		chunk := Chunk{Path: args.Path}
+		var embeddingJSON string
+		if err = result.Scan(&chunk.Index, &chunk.Text, &embeddingJSON); err != nil {
+			return chunks, err
+		}
+		if err = json.Unmarshal([]byte(embeddingJSON), &chunk.Embedding); err != nil {
+			return chunks, fmt.Errorf("failed to unmarshal embedding: %w", err)
+		}
+		chunks = append(chunks, chunk)
+	}
+	return chunks, nil
+}
+
 type ChunkSelectNearestArgs struct {
 	Embedding []float32
 	Limit     int

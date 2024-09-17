@@ -23,12 +23,12 @@ type Queries struct {
 }
 
 type DocumentUpsertArgs struct {
-	Path string `db:"path"`
+	Path string
 }
 
 type DocumentUpsertResult struct {
-	Path        string    `db:"path"`
-	LastUpdated time.Time `db:"last_updated"`
+	Path        string
+	LastUpdated time.Time
 }
 
 // DocumentUpsert upserts a document. If the document already exists the record will be
@@ -66,8 +66,8 @@ func (q *Queries) DocumentUpsert(ctx context.Context, args DocumentUpsertArgs) (
 }
 
 type DocumentUpdateLastUpdatedArgs struct {
-	Path        string    `db:"path"`
-	LastUpdated time.Time `db:"last_updated"`
+	Path        string
+	LastUpdated time.Time
 }
 
 func (q *Queries) DocumentUpdateLastUpdated(ctx context.Context, args DocumentUpdateLastUpdatedArgs) (err error) {
@@ -82,10 +82,10 @@ func (q *Queries) DocumentUpdateLastUpdated(ctx context.Context, args DocumentUp
 }
 
 type DocumentFTSUpsertArgs struct {
-	Path    string `db:"path"`
-	Title   string `db:"title"`
-	Text    string `db:"text"`
-	Summary string `db:"summary"`
+	Path    string
+	Title   string
+	Text    string
+	Summary string
 }
 
 func (q *Queries) DocumentFTSUpsert(ctx context.Context, args DocumentFTSUpsertArgs) (err error) {
@@ -100,7 +100,7 @@ func (q *Queries) DocumentFTSUpsert(ctx context.Context, args DocumentFTSUpsertA
 }
 
 type ChunkDeleteArgs struct {
-	Path string `db:"path"`
+	Path string
 }
 
 func (q *Queries) ChunkDelete(ctx context.Context, args ChunkDeleteArgs) (err error) {

@@ -31,7 +31,7 @@ require (
 	github.com/clbanning/mxj/v2 v2.7.0 // indirect
 	github.com/cli/safeexec v1.0.1 // indirect
 	github.com/disintegration/gift v1.2.1 // indirect
-	github.com/dlclark/regexp2 v1.11.0 // indirect
+	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/evanw/esbuild v0.23.1 // indirect
 	github.com/fatih/color v1.17.0 // indirect
 	github.com/frankban/quicktest v1.14.6 // indirect

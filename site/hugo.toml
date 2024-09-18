@@ -1,6 +1,6 @@
 baseURL = 'https://example.org/'
 languageCode = 'en-us'
-title = 'Strategy'
+title = 'British Army Equipment'
 
 [module]
 [[module.imports]]

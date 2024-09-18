@@ -74,7 +74,8 @@ func run(ctx context.Context) error {
 
 func chat(ctx context.Context) (err error) {
 	chatFlags := flag.NewFlagSet("chat", flag.ExitOnError)
-	model := chatFlags.String("model", "mistral-nemo", "The model to chat with.")
+	embeddingModel := chatFlags.String("embedding-model", "nomic-embed-text", "The model to chat with.")
+	model := chatFlags.String("chat-model", "mistral-nemo", "The model to chat with.")
 	msg := chatFlags.String("msg", "", "The message to send.")
 	nc := chatFlags.Bool("no-context", false, "Set to skip context retrieval and use the base model")
 	level := chatFlags.String("level", "warn", "The log level to use, set to info for additional logs")
@@ -118,14 +119,14 @@ func chat(ctx context.Context) (err error) {
 	log.Info("getting context")
 	var chunks []db.Chunk
 	if !*nc {
-		chunks, err = getContext(ctx, log, queries, oc, *msg)
+		chunks, err = getContext(ctx, log, queries, oc, *embeddingModel, *msg)
 		if err != nil {
 			return err
 		}
 	}
 
 	var sb strings.Builder
-	sb.WriteString("Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Reference the path to relevant context.\n")
+	sb.WriteString("Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.\n")
 
 	for _, doc := range chunks {
 		sb.WriteString(fmt.Sprintf("Context from %s:\n%s\n\n", doc.Path, doc.Text))
@@ -152,9 +153,9 @@ func chat(ctx context.Context) (err error) {
 	return oc.Chat(ctx, req, fn)
 }
 
-func getNearestChunks(ctx context.Context, queries *db.Queries, oc *ollamaapi.Client, input string) (chunks []db.ChunkSelectNearestResult, err error) {
+func getNearestChunks(ctx context.Context, queries *db.Queries, oc *ollamaapi.Client, model, input string) (chunks []db.ChunkSelectNearestResult, err error) {
 	embeddings, err := oc.Embed(ctx, &ollamaapi.EmbedRequest{
-		Model: "mistral-nemo",
+		Model: model,
 		Input: input,
 	})
 	if err != nil {
@@ -193,8 +194,8 @@ func getChunkContext(ctx context.Context, queries *db.Queries, chunks []db.Chunk
 	return result, nil
 }
 
-func getContext(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *ollamaapi.Client, msg string) (chunks []db.Chunk, err error) {
-	nearest, err := getNearestChunks(ctx, queries, oc, msg)
+func getContext(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *ollamaapi.Client, model, msg string) (chunks []db.Chunk, err error) {
+	nearest, err := getNearestChunks(ctx, queries, oc, model, msg)
 	if err != nil {
 		return chunks, fmt.Errorf("failed to get message embeddings: %w", err)
 	}
@@ -210,6 +211,7 @@ func getContext(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *
 
 func sync(ctx context.Context) (err error) {
 	syncFlags := flag.NewFlagSet("sync", flag.ExitOnError)
+	embeddingModel := syncFlags.String("embedding-model", "nomic-embed-text", "The model to use for embeddings.")
 	level := syncFlags.String("level", "info", "The log level to use, set to info for additional logs")
 	if err = syncFlags.Parse(os.Args[2:]); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
@@ -295,7 +297,7 @@ func sync(ctx context.Context) (err error) {
 		chunkInsertArgs.Chunks = make([]db.Chunk, len(chunks))
 		log.Info("getting embeddings")
 		embeddings, err := oc.Embed(ctx, &ollamaapi.EmbedRequest{
-			Model: "mistral-nemo",
+			Model: *embeddingModel,
 			Input: chunks,
 		})
 		if err != nil {

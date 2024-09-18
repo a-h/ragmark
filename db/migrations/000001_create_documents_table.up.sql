@@ -14,5 +14,5 @@ create table chunk(
     text text not null
 );
 create virtual table chunk_embedding using vec0(
-    embedding float[5120]
+    embedding float[768]
 );

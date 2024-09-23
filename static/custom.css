@@ -83,15 +83,16 @@ a:hover {
 	color: #00aaff;
 }
 
-nav>ul {
+nav ul {
 	padding-left: 0;
 }
 
-nav>ul>li {
+nav li {
 	font-size: .875rem;
 	line-height: 1.6;
 	list-style-type: none;
 	padding: 0;
+	margin-left: 5px;
 }
 
 @media (max-width: 768px) {

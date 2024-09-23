@@ -52,16 +52,16 @@ func TestMenu(t *testing.T) {
 
 	expectedMenu := []site.MenuItem{
 		{URL: "/", Title: "Home", Children: []site.MenuItem{
-			{URL: "/a", Title: "a", Children: []site.MenuItem{
+			{URL: "/a", Title: "A", Children: []site.MenuItem{
 				{URL: "/a/1", Title: "1", Children: []site.MenuItem{
-					{URL: "/a/1/aa", Title: "aa"},
+					{URL: "/a/1/aa", Title: "Aa"},
 				}},
 				{URL: "/a/2", Title: "2"},
 			}},
-			{URL: "/b", Title: "b"},
-			{URL: "/c", Title: "c"},
-			{URL: "/d", Title: "/d", Children: []site.MenuItem{
-				{URL: "/d/3", Title: "/d/3", Children: []site.MenuItem{
+			{URL: "/b", Title: "B"},
+			{URL: "/c", Title: "C"},
+			{URL: "/d", Title: "D", Children: []site.MenuItem{
+				{URL: "/d/3", Title: "3", Children: []site.MenuItem{
 					{URL: "/d/3/4", Title: "4"},
 				}},
 			}},

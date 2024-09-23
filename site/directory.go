@@ -13,17 +13,25 @@ func NewDirectoryDirEntryHandler(handlerFunc func(s *Site, dir Metadata, childre
 		if !d.IsDir() {
 			return url, content, false, nil
 		}
+		url = filePathToURL(path)
+		urlPathSegments := strings.Split(url, "/")
+		title := "Home"
+		if len(urlPathSegments) > 0 {
+			title = englishCases.String(urlPathSegments[len(urlPathSegments)-1])
+		}
 		return filePathToURL(path), Directory{
 			Site:        s,
-			URL:         filePathToURL(path),
+			URL:         url,
+			Title:       title,
 			HandlerFunc: handlerFunc,
 		}, true, nil
 	}
 }
 
 type Directory struct {
-	Site *Site
-	URL  string
+	Site  *Site
+	URL   string
+	Title string
 	// HandlerFunc is a function that returns an http.Handler that will render the directory.
 	// The handler will be passed the children of the directory.
 	HandlerFunc func(site *Site, dir Metadata, children []Metadata) http.Handler
@@ -32,7 +40,7 @@ type Directory struct {
 func (d Directory) Metadata() (m Metadata) {
 	return Metadata{
 		URL:   d.URL,
-		Title: d.URL,
+		Title: d.Title,
 	}
 }
 

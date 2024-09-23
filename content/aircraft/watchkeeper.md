@@ -6,7 +6,7 @@ The system provides the Army’s Land Tactical Deep Find capability which is an 
 
 It is built in the UK, and has been used successfully in Afghanistan, where it played a crucial protective role for British troops. Since the first flight in 2010, Watchkeeper has accumulated close to 4,000 flying hours.
 
-## It's use
+## Its use
 
 Watchkeeper is an intelligence, surveillance, target acquisition and reconnaissance (ISTAR) asset, that can collect, process and disseminate high quality imagery intelligence as part of a layered and integrated ISTAR ecosystem. The radar can detect movement across thousands of square kilometres using Ground Moving Target Indicator (GMTI) functionality and, in Synthetic Aperture Radar (SAR) mode, it can provide high-quality images, including through cloud, from long ranges. It has day and night cameras with the power to identify targets from significant stand-off ranges and a laser sub-system for range-finding, target marking and target designation to support long-range strike. Radar and camera imagery from Watchkeeper can be networked to senior commanders and analysts, troops on the ground and to pass targets to other ISTAR assets or strike assets.
 

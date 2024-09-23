@@ -11,6 +11,7 @@ require (
 	github.com/ollama/ollama v0.3.10
 	github.com/rqlite/gorqlite v0.0.0-20240808172217-12ae7d03ef19
 	github.com/yuin/goldmark v1.7.4
+	golang.org/x/text v0.18.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

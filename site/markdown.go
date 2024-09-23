@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
-	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -39,31 +37,6 @@ func NewMarkdownDirEntryHandler(handler func(site *Site, page Metadata, outputHT
 		}
 		return filePathToURL(path), content, true, nil
 	}
-}
-
-func filePathToURL(fp string) (u string) {
-	if fp == "." {
-		return "/"
-	}
-	if fp == "index.md" {
-		return "/"
-	}
-	list := strings.Split(fp, string(os.PathSeparator))
-
-	fileName := list[len(list)-1]
-	// If it's a markdown file, remove the extension.
-	list[len(list)-1] = strings.TrimSuffix(fileName, ".md")
-	// If it's an index file, remove the filename.
-	if fileName == "index.md" {
-		list = list[:len(list)-1]
-	}
-
-	// URL escape the paths.
-	for i, v := range list {
-		list[i] = url.PathEscape(v)
-	}
-
-	return "/" + strings.Join(list, "/")
 }
 
 type Markdown struct {
@@ -164,7 +137,7 @@ scan:
 		if strings.HasSuffix(fn, ".md") {
 			fn = strings.TrimSuffix(fn, ".md")
 		}
-		m.Title = fn
+		m.Title = englishCases.String(fn)
 	}
 	if m.URL == "" {
 		m.URL = filePathToURL(path)

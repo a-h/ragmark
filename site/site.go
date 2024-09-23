@@ -28,6 +28,7 @@ type Site struct {
 type Content interface {
 	Metadata() (m Metadata)
 	Text() (text string, err error)
+	TOC() (toc []MenuItem)
 	ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
@@ -73,7 +74,6 @@ func New(args SiteArgs) (site *Site, err error) {
 	if args.BaseURL == "" {
 		args.BaseURL = "http://localhost:1414/"
 	}
-	args.BaseURL = strings.TrimSuffix(args.BaseURL, "/")
 
 	site = &Site{
 		Log:     args.Log,

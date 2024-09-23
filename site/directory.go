@@ -44,6 +44,10 @@ func (d Directory) Metadata() (m Metadata) {
 	}
 }
 
+func (d Directory) TOC() (toc []MenuItem) {
+	return nil
+}
+
 func (d Directory) Text() (text string, err error) {
 	return "", nil
 }

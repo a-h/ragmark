@@ -33,7 +33,7 @@ Content
 	s, err := site.New(site.SiteArgs{
 		Dir: dirFS,
 		ContentHandlers: []site.DirEntryHandler{
-			site.NewMarkdownDirEntryHandler(func(site *site.Site, page site.Metadata, outputHTML string, err error) http.Handler {
+			site.NewMarkdownDirEntryHandler(func(site *site.Site, page site.Metadata, toc []site.MenuItem, outputHTML string, err error) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					io.WriteString(w, outputHTML)
 				})
@@ -84,7 +84,7 @@ Content
 		if w.Code != http.StatusOK {
 			t.Fatalf("unexpected status code: %v", w.Code)
 		}
-		expectedHTML := "<h1>Title</h1>\n<p>Content</p>\n"
+		expectedHTML := "<h1 id=\"title\">Title</h1>\n<p>Content</p>\n"
 
 		if diff := cmp.Diff(expectedHTML, w.Body.String()); diff != "" {
 			t.Errorf("unexpected HTML (-want +got):\n%s", diff)

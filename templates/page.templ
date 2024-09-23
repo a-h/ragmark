@@ -20,8 +20,10 @@ templ menu(items []site.MenuItem) {
 	</ul>
 }
 
-templ Right(c site.Content) {
-	//TODO: Update content.
+templ Right(toc []site.MenuItem) {
+	<nav>
+		@menu(toc)
+	</nav>
 }
 
 templ Directory(dir site.Metadata, children []site.Metadata) {
@@ -57,13 +59,7 @@ templ Page(left, middle, right templ.Component) {
 					</div>
 				</div>
 				<div class="sidebar-right">
-					<nav>
-						<ul>
-							<li><a href="#heading1">Heading 1</a></li>
-							<li><a href="#heading2">Heading 2</a></li>
-							<li><a href="#heading3">Heading 3</a></li>
-						</ul>
-					</nav>
+					@right
 				</div>
 			</div>
 		</body>

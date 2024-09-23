@@ -38,7 +38,7 @@ func TestMenu(t *testing.T) {
 	s, err := site.New(site.SiteArgs{
 		Dir: dirFS,
 		ContentHandlers: []site.DirEntryHandler{
-			site.NewMarkdownDirEntryHandler(func(site *site.Site, page site.Metadata, outputHTML string, err error) http.Handler {
+			site.NewMarkdownDirEntryHandler(func(site *site.Site, page site.Metadata, toc []site.MenuItem, outputHTML string, err error) http.Handler {
 				return nil
 			}),
 			site.NewDirectoryDirEntryHandler(func(s *site.Site, dir site.Metadata, children []site.Metadata) http.Handler {

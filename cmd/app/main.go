@@ -366,7 +366,7 @@ var dirHandler = site.NewDirectoryDirEntryHandler(func(s *site.Site, dir site.Me
 })
 
 // Handle Markdown files.
-var mdHandler = site.NewMarkdownDirEntryHandler(func(s *site.Site, page site.Metadata, outputHTML string, err error) http.Handler {
+var mdHandler = site.NewMarkdownDirEntryHandler(func(s *site.Site, page site.Metadata, toc []site.MenuItem, outputHTML string, err error) http.Handler {
 	if err != nil {
 		s.Log.Error("failed to render markdown", slog.String("url", page.URL), slog.Any("error", err))
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -375,9 +375,7 @@ var mdHandler = site.NewMarkdownDirEntryHandler(func(s *site.Site, page site.Met
 	}
 	left := templates.Left(s)
 	middle := templ.Raw(outputHTML)
-	right := templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		return nil
-	})
+	right := templates.Right(toc)
 	return templ.Handler(templates.Page(left, middle, right))
 })
 

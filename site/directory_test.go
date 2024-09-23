@@ -32,7 +32,7 @@ Content
 	s, err := site.New(site.SiteArgs{
 		Dir: dirFS,
 		ContentHandlers: []site.DirEntryHandler{
-			site.NewMarkdownDirEntryHandler(func(site *site.Site, page site.Metadata, outputHTML string, err error) http.Handler {
+			site.NewMarkdownDirEntryHandler(func(site *site.Site, page site.Metadata, toc []site.MenuItem, outputHTML string, err error) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					io.WriteString(w, outputHTML)
 				})

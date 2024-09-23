@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -14,11 +15,11 @@ import (
 	ollamaapi "github.com/ollama/ollama/api"
 
 	"github.com/a-h/ragmark/db"
-	"github.com/a-h/ragmark/hugowalker"
+	"github.com/a-h/ragmark/site"
 	"github.com/a-h/ragmark/splitter"
+	"github.com/a-h/ragmark/templates"
+	"github.com/a-h/templ"
 	"github.com/rqlite/gorqlite"
-
-	"github.com/gohugoio/hugo/resources/page"
 )
 
 func main() {
@@ -36,7 +37,8 @@ Usage:
 
 Commands:
   chat    Chat with the LLM server.
-  sync    Sync the Hugo site with the search index.
+  sync    Populate the search database.
+	serve   Serve the website.
 `
 
 func getLogger(level string) *slog.Logger {
@@ -67,6 +69,9 @@ func run(ctx context.Context) error {
 		return chat(ctx)
 	case "sync":
 		return sync(ctx)
+	case "serve":
+		return serve(ctx)
+
 	default:
 		return fmt.Errorf("unknown command: %s", os.Args[1])
 	}
@@ -210,10 +215,12 @@ func getContext(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *
 }
 
 func sync(ctx context.Context) (err error) {
-	syncFlags := flag.NewFlagSet("sync", flag.ExitOnError)
-	embeddingModel := syncFlags.String("embedding-model", "nomic-embed-text", "The model to use for embeddings.")
-	level := syncFlags.String("level", "info", "The log level to use, set to info for additional logs")
-	if err = syncFlags.Parse(os.Args[2:]); err != nil {
+	flags := flag.NewFlagSet("sync", flag.ExitOnError)
+	embeddingModel := flags.String("embedding-model", "nomic-embed-text", "The model to use for embeddings.")
+	level := flags.String("level", "info", "The log level to use, set to info for additional logs")
+	baseURL := flags.String("base-url", "/", "The base URL of the site")
+	title := flags.String("title", "ragmark site", "Title of site")
+	if err = flags.Parse(os.Args[2:]); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
 	}
 	log := getLogger(*level)
@@ -249,48 +256,58 @@ func sync(ctx context.Context) (err error) {
 
 	log.Info("starting process")
 
-	hw, err := hugowalker.New("./site")
+	site, err := site.New(site.SiteArgs{
+		Log:     log,
+		Dir:     os.DirFS("./content"),
+		BaseURL: *baseURL,
+		Title:   *title,
+		ContentHandlers: []site.DirEntryHandler{
+			dirHandler,
+			mdHandler,
+		},
+	})
 	if err != nil {
-		return fmt.Errorf("failed to create Hugo walker: %w", err)
+		return fmt.Errorf("failed to create content walker: %w", err)
 	}
-	hw.Walk(func(p page.Page) bool {
-		if !p.IsPage() {
-			return true
-		}
+	for url, content := range site.Content() {
+		log := log.With(slog.String("url", url))
 
-		log := log.With(slog.String("path", p.Path()))
-
-		log.Info("processing page")
+		log.Info("processing content")
 
 		log.Info("getting document metadata")
-		documentMetadata, err := queries.DocumentUpsert(ctx, db.DocumentUpsertArgs{
-			Path: p.Path(),
+		dbMetadata, err := queries.DocumentUpsert(ctx, db.DocumentUpsertArgs{
+			Path: url,
 		})
 		if err != nil {
-			log.Error("failed to get document metadata", slog.Any("error", err))
-			return false
+			return fmt.Errorf("failed to get document metadata from db: %w", err)
 		}
 
-		if p.Lastmod().Before(documentMetadata.LastUpdated) {
+		if content.Metadata().LastMod.Before(dbMetadata.LastUpdated) {
 			log.Info("document is up to date")
-			return true
 		}
 		log.Info("document is out of date")
 
-		//TODO: Pull out the p.Params() to pull the metadata etc.
-		log.Info("upserting document fts index")
-		err = queries.DocumentFTSUpsert(ctx, db.DocumentFTSUpsertArgs{
-			Path:    p.Path(),
-			Title:   p.Title(),
-			Text:    p.Plain(ctx),
-			Summary: string(p.Summary(ctx)),
-		})
-		if err != nil {
-			log.Error("failed to upsert document fts index", slog.Any("error", err))
-			return false
+		if !strings.HasPrefix(content.Metadata().MimeType, "text/html") {
+			log.Info("content is not HTML, skipping")
+			continue
 		}
 
-		chunks := splitter.Split(p.Plain(ctx))
+		log.Info("upserting document fts index")
+		text, err := content.Text()
+		if err != nil {
+			return fmt.Errorf("failed to get document text: %w", err)
+		}
+		err = queries.DocumentFTSUpsert(ctx, db.DocumentFTSUpsertArgs{
+			Path:    url,
+			Title:   content.Metadata().Title,
+			Text:    text,
+			Summary: content.Metadata().Summary,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to upsert document fts index: %w", err)
+		}
+
+		chunks := splitter.Split(text)
 		log.Info("processing document chunks", slog.Int("count", len(chunks)))
 
 		var chunkInsertArgs db.ChunkInsertArgs
@@ -301,12 +318,11 @@ func sync(ctx context.Context) (err error) {
 			Input: chunks,
 		})
 		if err != nil {
-			log.Error("failed to get chunk embeddings", slog.Any("error", err))
-			return false
+			return fmt.Errorf("failed to get chunk embeddings: %w", err)
 		}
 		for i, chunk := range chunks {
 			chunkInsertArgs.Chunks[i] = db.Chunk{
-				Path:      p.Path(),
+				Path:      url,
 				Index:     i,
 				Text:      chunk,
 				Embedding: embeddings.Embeddings[i],
@@ -315,30 +331,94 @@ func sync(ctx context.Context) (err error) {
 
 		log.Info("deleting existing document chunks")
 		err = queries.ChunkDelete(ctx, db.ChunkDeleteArgs{
-			Path: p.Path(),
+			Path: url,
 		})
 		if err != nil {
-			log.Error("failed to delete document index", slog.Any("error", err))
-			return false
+			return fmt.Errorf("failed to delete document index: %w", err)
 		}
 
 		log.Info("inserting new document chunks")
 		if err = queries.ChunkInsert(ctx, chunkInsertArgs); err != nil {
-			log.Error("failed to insert chunks", slog.Any("error", err))
+			return fmt.Errorf("failed to insert chunks: %w", err)
 		}
 
 		log.Info("updating last updated time")
 		if err = queries.DocumentUpdateLastUpdated(ctx, db.DocumentUpdateLastUpdatedArgs{
-			Path:        p.Path(),
+			Path:        url,
 			LastUpdated: time.Now(),
 		}); err != nil {
-			log.Error("failed to update last updated time", slog.Any("error", err))
-			return false
+			return fmt.Errorf("failed to update last updated time: %w", err)
 		}
 		log.Info("inserted document index")
-
-		return true
-	})
+	}
 	log.Info("update complete")
 	return nil
+}
+
+// Handle empty directories.
+var dirHandler = site.NewDirectoryDirEntryHandler(func(s *site.Site, dir site.Metadata, children []site.Metadata) http.Handler {
+	left := templates.Left(s)
+	middle := templates.Directory(dir, children)
+	right := templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		return nil
+	})
+	return templ.Handler(templates.Page(left, middle, right))
+})
+
+// Handle Markdown files.
+var mdHandler = site.NewMarkdownDirEntryHandler(func(s *site.Site, page site.Metadata, outputHTML string, err error) http.Handler {
+	if err != nil {
+		s.Log.Error("failed to render markdown", slog.String("url", page.URL), slog.Any("error", err))
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "failed to render markdown", http.StatusInternalServerError)
+		})
+	}
+	left := templates.Left(s)
+	middle := templ.Raw(outputHTML)
+	right := templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		return nil
+	})
+	return templ.Handler(templates.Page(left, middle, right))
+})
+
+func serve(ctx context.Context) (err error) {
+	flags := flag.NewFlagSet("chat", flag.ExitOnError)
+	level := flags.String("level", "info", "The log level to use, set to debug for additional logs")
+	baseURL := flags.String("base-url", "/", "The base URL of the site")
+	title := flags.String("title", "ragmark site", "Title of site")
+	if err = flags.Parse(os.Args[2:]); err != nil {
+		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+	log := getLogger(*level)
+
+	s, err := site.New(site.SiteArgs{
+		Log:     log,
+		Dir:     os.DirFS("./content"),
+		BaseURL: *baseURL,
+		Title:   *title,
+		ContentHandlers: []site.DirEntryHandler{
+			dirHandler,
+			mdHandler,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to load site: %w", err)
+	}
+
+	var contentCount int
+	for url, c := range s.Content() {
+		log.Info(url, slog.String("metadataURL", c.Metadata().URL))
+		contentCount++
+	}
+	if contentCount == 0 {
+		log.Warn("no content to serve")
+	}
+
+	log.Info("starting server", slog.String("addr", ":1414"))
+
+	mux := http.NewServeMux()
+	mux.Handle("/", s)
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
+	return http.ListenAndServe("localhost:1414", mux)
 }

@@ -5,18 +5,13 @@ type: docs
 
 # British Army Equipment
 
-{{< columns >}}
 ## Combat vehicles
 
 Firepower - mobility - protection: the three key aspects of any fighting vehicle.
 
-<--->
-
 ## Aircraft
 
 The Army's aircraft enable our soldiers to carry out vital roles including reconnaissance missions and casualty evacuations.
-
-{{< /columns >}}
 
 ## Equipment
 

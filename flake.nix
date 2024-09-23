@@ -95,7 +95,6 @@
 
       # Development tools used.
       devTools = { system, pkgs }: [
-        pkgs.hugo # Static site generator.
         pkgs.sqlite # Full text database.
         pkgs.crane
         pkgs.gh

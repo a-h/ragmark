@@ -1,0 +1,71 @@
+package templates
+
+import "github.com/a-h/ragmark/site"
+
+templ Left(s *site.Site) {
+	<h2><a href={ templ.SafeURL(s.BaseURL) }>{ s.Title }</a></h2>
+	<nav>
+		@menu(s.Menu())
+	</nav>
+}
+
+templ menu(items []site.MenuItem) {
+	<ul>
+		for _, item := range items {
+			<li>
+				<a href={ templ.SafeURL(item.URL) }>{ item.Title }</a>
+				@menu(item.Children)
+			</li>
+		}
+	</ul>
+}
+
+templ Right(c site.Content) {
+	//TODO: Update content.
+}
+
+templ Directory(dir site.Metadata, children []site.Metadata) {
+	<h1>{ dir.Title }</h1>
+	<ul>
+		for _, child := range children {
+			<li>
+				<a href={ templ.SafeURL(child.URL) }>{ child.Title }</a>
+			</li>
+		}
+	</ul>
+}
+
+templ Page(left, middle, right templ.Component) {
+	<!DOCTYPE html>
+	<html>
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Content</title>
+			<link rel="stylesheet" href="/static/modern-normalize.css"/>
+			<link rel="stylesheet" href="/static/custom.css"/>
+		</head>
+		<body>
+			<div class="layout">
+				<div class="sidebar-left">
+					@left
+				</div>
+				<div class="content">
+					<a id="top"></a>
+					<div class="content-scroll-container">
+						@middle
+					</div>
+				</div>
+				<div class="sidebar-right">
+					<nav>
+						<ul>
+							<li><a href="#heading1">Heading 1</a></li>
+							<li><a href="#heading2">Heading 2</a></li>
+							<li><a href="#heading3">Heading 3</a></li>
+						</ul>
+					</nav>
+				</div>
+			</div>
+		</body>
+	</html>
+}

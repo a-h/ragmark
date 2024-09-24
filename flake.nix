@@ -40,7 +40,13 @@
             # Use latest version of ollama, because it's a bit more
             # bleeding edge.
             (self: super: {
-              ollama = (unstableNixPkgs system).ollama;
+              ollama = (unstableNixPkgs system).ollama.override
+                (oldAttrs: {
+                  acceleration =
+                    if system == "aarch64-darwin" || system == "x86_64-darwin" # If darwin, use metal.
+                    then null
+                    else "cuda"; # If linux, use cuda. (change manually to "rocm" for AMD GPUs)
+                });
             })
           ];
         };

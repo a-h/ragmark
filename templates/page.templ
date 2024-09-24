@@ -5,6 +5,9 @@ import "github.com/a-h/ragmark/site"
 templ Left(s *site.Site) {
 	<h2><a href={ templ.SafeURL(s.BaseURL) }>{ s.Title }</a></h2>
 	<nav>
+		<ul>
+			<li><a href="/chat">✨ Chatbot</a></li>
+		</ul>
 		@menu(s.Menu())
 	</nav>
 }
@@ -46,6 +49,9 @@ templ Page(left, middle, right templ.Component) {
 			<title>Content</title>
 			<link rel="stylesheet" href="/static/modern-normalize.css"/>
 			<link rel="stylesheet" href="/static/custom.css"/>
+			<link rel="stylesheet" href="/static/sakura-fragments.css"/>
+			<script src="/static/htmx.min.js" integrity="sha384-Y7hw+L/jvKeWIRRkqWYfPcvVxHzVzn5REgzbawhxAuQGwX1XWe70vji+VSeHOThJ"></script>
+			<script src="/static/sse.js" integrity="sha384-fw+eTlCc7suMV/1w/7fr2/PmwElUIt5i82bi+qTiLXvjRXZ2/FkiTNA/w0MhXnGI"></script>
 		</head>
 		<body>
 			<div class="layout">

@@ -14,7 +14,9 @@ import (
 
 	ollamaapi "github.com/ollama/ollama/api"
 
+	"github.com/a-h/ragmark/chat"
 	"github.com/a-h/ragmark/db"
+	"github.com/a-h/ragmark/rag"
 	"github.com/a-h/ragmark/site"
 	"github.com/a-h/ragmark/splitter"
 	"github.com/a-h/ragmark/templates"
@@ -66,7 +68,7 @@ func run(ctx context.Context) error {
 
 	switch os.Args[1] {
 	case "chat":
-		return chat(ctx)
+		return chatCmd(ctx)
 	case "sync":
 		return sync(ctx)
 	case "serve":
@@ -77,7 +79,7 @@ func run(ctx context.Context) error {
 	}
 }
 
-func chat(ctx context.Context) (err error) {
+func chatCmd(ctx context.Context) (err error) {
 	chatFlags := flag.NewFlagSet("chat", flag.ExitOnError)
 	embeddingModel := chatFlags.String("embedding-model", "nomic-embed-text", "The model to chat with.")
 	model := chatFlags.String("chat-model", "mistral-nemo", "The model to chat with.")
@@ -122,9 +124,10 @@ func chat(ctx context.Context) (err error) {
 	oc := ollamaapi.NewClient(ollamaURL, httpClient)
 
 	log.Info("getting context")
+	r := rag.New(log, queries, oc, *embeddingModel)
 	var chunks []db.Chunk
 	if !*nc {
-		chunks, err = getContext(ctx, log, queries, oc, *embeddingModel, *msg)
+		chunks, err = r.GetContext(ctx, *msg)
 		if err != nil {
 			return err
 		}
@@ -156,62 +159,6 @@ func chat(ctx context.Context) (err error) {
 		return nil
 	}
 	return oc.Chat(ctx, req, fn)
-}
-
-func getNearestChunks(ctx context.Context, queries *db.Queries, oc *ollamaapi.Client, model, input string) (chunks []db.ChunkSelectNearestResult, err error) {
-	embeddings, err := oc.Embed(ctx, &ollamaapi.EmbedRequest{
-		Model: model,
-		Input: input,
-	})
-	if err != nil {
-		return chunks, fmt.Errorf("failed to get message embeddings: %w", err)
-	}
-	chunks, err = queries.ChunkSelectNearest(ctx, db.ChunkSelectNearestArgs{
-		Embedding: embeddings.Embeddings[0],
-		Limit:     10,
-	})
-	if err != nil {
-		return chunks, fmt.Errorf("failed to get nearest documents: %w", err)
-	}
-	return chunks, nil
-}
-
-func getChunkContext(ctx context.Context, queries *db.Queries, chunks []db.ChunkSelectNearestResult, n int) (result []db.Chunk, err error) {
-	previousChunks := map[string]struct{}{}
-	for _, chunk := range chunks {
-		chunkRange, err := queries.ChunkSelectRange(ctx, db.ChunkSelectRangeArgs{
-			Path:       chunk.Path,
-			StartIndex: chunk.Index - n,
-			EndIndex:   chunk.Index + n,
-		})
-		if err != nil {
-			return result, fmt.Errorf("failed to select chunk range: %w", err)
-		}
-		for _, chunkInRange := range chunkRange {
-			cacheKey := fmt.Sprintf("%s_%d", chunkInRange.Path, chunkInRange.Index)
-			if _, previouslyAdded := previousChunks[cacheKey]; previouslyAdded {
-				continue
-			}
-			result = append(result, chunkInRange)
-			previousChunks[cacheKey] = struct{}{}
-		}
-	}
-	return result, nil
-}
-
-func getContext(ctx context.Context, log *slog.Logger, queries *db.Queries, oc *ollamaapi.Client, model, msg string) (chunks []db.Chunk, err error) {
-	nearest, err := getNearestChunks(ctx, queries, oc, model, msg)
-	if err != nil {
-		return chunks, fmt.Errorf("failed to get message embeddings: %w", err)
-	}
-
-	log.Info("found nearest chunks", slog.Int("count", len(nearest)))
-	for _, result := range nearest {
-		log.Info("result", slog.String("doc", result.Path), slog.Float64("distance", result.Distance), slog.Int("index", result.Index))
-	}
-
-	log.Info("getting surrounding context for chunks")
-	return getChunkContext(ctx, queries, nearest, 10)
 }
 
 func sync(ctx context.Context) (err error) {
@@ -380,7 +327,9 @@ var mdHandler = site.NewMarkdownDirEntryHandler(func(s *site.Site, page site.Met
 })
 
 func serve(ctx context.Context) (err error) {
-	flags := flag.NewFlagSet("chat", flag.ExitOnError)
+	flags := flag.NewFlagSet("serve", flag.ExitOnError)
+	embeddingModel := flags.String("embedding-model", "nomic-embed-text", "The model to chat with.")
+	chatModel := flags.String("chat-model", "mistral-nemo", "The model to chat with.")
 	level := flags.String("level", "info", "The log level to use, set to debug for additional logs")
 	baseURL := flags.String("base-url", "/", "The base URL of the site")
 	title := flags.String("title", "ragmark site", "Title of site")
@@ -388,6 +337,35 @@ func serve(ctx context.Context) (err error) {
 		return fmt.Errorf("failed to parse flags: %w", err)
 	}
 	log := getLogger(*level)
+
+	databaseURL := db.URL{
+		User:     "admin",
+		Password: "secret",
+		Host:     "localhost",
+		Port:     4001,
+		Secure:   false,
+	}
+
+	log.Info("connecting to database")
+	conn, err := gorqlite.Open(databaseURL.DataSourceName())
+	if err != nil {
+		return fmt.Errorf("failed to open connection: %w", err)
+	}
+	defer conn.Close()
+	queries := db.New(conn)
+
+	log.Info("migrating database schema")
+	if err = db.Migrate(databaseURL); err != nil {
+		return fmt.Errorf("failed to migrate database: %w", err)
+	}
+
+	log.Info("creating LLM client")
+	ollamaURL, err := url.Parse("http://127.0.0.1:11434/")
+	if err != nil {
+		return fmt.Errorf("failed to parse LLM URL: %w", err)
+	}
+	httpClient := &http.Client{}
+	oc := ollamaapi.NewClient(ollamaURL, httpClient)
 
 	s, err := site.New(site.SiteArgs{
 		Log:     log,
@@ -417,6 +395,11 @@ func serve(ctx context.Context) (err error) {
 	mux := http.NewServeMux()
 	mux.Handle("/", s)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
+	mux.Handle("/chat", chat.NewFormHandler(s))
+	r := rag.New(log, queries, oc, *embeddingModel)
+	ch := chat.NewResponseHandler(log, r, oc, *chatModel)
+	mux.Handle("/chat/response", ch)
 
 	return http.ListenAndServe("localhost:1414", mux)
 }

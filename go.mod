@@ -12,6 +12,7 @@ require (
 	github.com/rqlite/gorqlite v0.0.0-20240808172217-12ae7d03ef19
 	github.com/yuin/goldmark v1.7.4
 	go.abhg.dev/goldmark/frontmatter v0.2.0
+	go.abhg.dev/goldmark/toc v0.10.0
 	golang.org/x/text v0.18.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -22,7 +23,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	go.abhg.dev/goldmark/toc v0.10.0 // indirect
+	github.com/templ-go/x v0.0.0-20240924085055-a31c35cebd07 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 )

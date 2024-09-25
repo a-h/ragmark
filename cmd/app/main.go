@@ -10,15 +10,14 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	ollamaapi "github.com/ollama/ollama/api"
 
 	"github.com/a-h/ragmark/chat"
 	"github.com/a-h/ragmark/db"
+	"github.com/a-h/ragmark/indexer"
 	"github.com/a-h/ragmark/rag"
 	"github.com/a-h/ragmark/site"
-	"github.com/a-h/ragmark/splitter"
 	"github.com/a-h/ragmark/templates"
 	"github.com/a-h/templ"
 	"github.com/rqlite/gorqlite"
@@ -39,7 +38,7 @@ Usage:
 
 Commands:
   chat    Chat with the LLM server.
-  sync    Populate the search database.
+  index   Populate the search database.
 	serve   Serve the website.
 `
 
@@ -69,8 +68,8 @@ func run(ctx context.Context) error {
 	switch os.Args[1] {
 	case "chat":
 		return chatCmd(ctx)
-	case "sync":
-		return sync(ctx)
+	case "index":
+		return indexCmd(ctx)
 	case "serve":
 		return serve(ctx)
 
@@ -161,8 +160,8 @@ func chatCmd(ctx context.Context) (err error) {
 	return oc.Chat(ctx, req, fn)
 }
 
-func sync(ctx context.Context) (err error) {
-	flags := flag.NewFlagSet("sync", flag.ExitOnError)
+func indexCmd(ctx context.Context) (err error) {
+	flags := flag.NewFlagSet("index", flag.ExitOnError)
 	embeddingModel := flags.String("embedding-model", "nomic-embed-text", "The model to use for embeddings.")
 	level := flags.String("level", "info", "The log level to use, set to info for additional logs")
 	baseURL := flags.String("base-url", "/", "The base URL of the site")
@@ -201,8 +200,7 @@ func sync(ctx context.Context) (err error) {
 	httpClient := &http.Client{}
 	oc := ollamaapi.NewClient(ollamaURL, httpClient)
 
-	log.Info("starting process")
-
+	log.Info("creating site walker")
 	site, err := site.New(site.SiteArgs{
 		Log:     log,
 		Dir:     os.DirFS("./content"),
@@ -216,90 +214,9 @@ func sync(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to create content walker: %w", err)
 	}
-	for url, content := range site.Content() {
-		log := log.With(slog.String("url", url))
 
-		log.Info("processing content")
-
-		log.Info("getting document metadata")
-		dbMetadata, err := queries.DocumentUpsert(ctx, db.DocumentUpsertArgs{
-			Path: url,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to get document metadata from db: %w", err)
-		}
-
-		if content.Metadata().LastMod.Before(dbMetadata.LastUpdated) {
-			log.Info("document is up to date")
-		}
-		log.Info("document is out of date")
-
-		if !strings.HasPrefix(content.Metadata().MimeType, "text/html") {
-			log.Info("content is not HTML, skipping")
-			continue
-		}
-
-		log.Info("upserting document fts index")
-		text, err := content.Text()
-		if err != nil {
-			return fmt.Errorf("failed to get document text: %w", err)
-		}
-		err = queries.DocumentFTSUpsert(ctx, db.DocumentFTSUpsertArgs{
-			Path:    url,
-			Title:   content.Metadata().Title,
-			Text:    text,
-			Summary: content.Metadata().Summary,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to upsert document fts index: %w", err)
-		}
-
-		chunks := splitter.Split(text)
-		log.Info("processing document chunks", slog.Int("count", len(chunks)))
-
-		var chunkInsertArgs db.ChunkInsertArgs
-		chunkInsertArgs.Chunks = make([]db.Chunk, len(chunks))
-		log.Info("getting embeddings")
-		embeddings, err := oc.Embed(ctx, &ollamaapi.EmbedRequest{
-			Model: *embeddingModel,
-			Input: chunks,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to get chunk embeddings: %w", err)
-		}
-		for i, chunk := range chunks {
-			chunkInsertArgs.Chunks[i] = db.Chunk{
-				Path:      url,
-				Index:     i,
-				Text:      chunk,
-				Embedding: embeddings.Embeddings[i],
-			}
-		}
-
-		log.Info("deleting existing document chunks")
-		err = queries.ChunkDelete(ctx, db.ChunkDeleteArgs{
-			Path: url,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to delete document index: %w", err)
-		}
-
-		log.Info("inserting new document chunks")
-		if err = queries.ChunkInsert(ctx, chunkInsertArgs); err != nil {
-			return fmt.Errorf("failed to insert chunks: %w", err)
-		}
-
-		log.Info("updating last updated time")
-		if err = queries.DocumentUpdateLastUpdated(ctx, db.DocumentUpdateLastUpdatedArgs{
-			Path:        url,
-			LastUpdated: time.Now(),
-		}); err != nil {
-			return fmt.Errorf("failed to update last updated time: %w", err)
-		}
-		log.Info("inserted document index")
-	}
-	log.Info("update complete")
-	return nil
+	idx := indexer.New(log, queries, oc, *embeddingModel)
+	return idx.Index(ctx, site)
 }
 
 // Handle empty directories.

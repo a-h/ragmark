@@ -2,10 +2,10 @@
 
 ## Tasks
 
-### sync
+### index
 
 ```bash
-go run cmd/app/main.go sync
+go run cmd/app/main.go index
 ```
 
 ### chat

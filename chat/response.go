@@ -69,7 +69,7 @@ func (h ResponseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	sb.WriteString("Question: ")
 	sb.WriteString(prompt)
-	sb.WriteString("\nSuccint Answer: ")
+	sb.WriteString("\nSuccinct Answer: ")
 
 	req := &ollamaapi.ChatRequest{
 		Model: h.ChatModel,

@@ -29,24 +29,61 @@
         inherit system;
       };
 
+      # Wrap ollama so that we can set environment variables to provide models.
+      wrappedOllama = system: pkgs:
+        let
+          #TODO: When https://github.com/ollama/ollama/pull/7001 is merged and the unstable 
+          # nixpkgs uses the version with it, we can remove the src and vendorHash overrides,
+          # keeping the acceleration override.
+          ollama = (pkgs.ollama.overrideAttrs {
+            version = "3.11-patch";
+            src = pkgs.fetchFromGitHub {
+              owner = "a-h";
+              repo = "ollama";
+              rev = "42e790d02524f5f461eb241d88de12cf6d9afdb2";
+              fetchSubmodules = true;
+              hash = "sha256-R7KT1Vg4VRtoI1lXBiIKbQJQfxn6sAYXBwAisl1MN5c=";
+            };
+            vendorHash = "sha256-hSxcREAujhvzHVNwnRTfhi0MKI3s8HNavER2VLz6SYk=";
+          }).override
+            (oldAttrs: {
+              acceleration =
+                if system == "aarch64-darwin" || system == "x86_64-darwin" # If darwin, use metal.
+                then null
+                else "cuda"; # If linux, use cuda. (change manually to "rocm" for AMD GPUs)
+            });
+          models = pkgs.runCommand "pull-models" { } ''
+            export HOME="$out"
+            ${ollama}/bin/ollama pull mistral-nemo --local
+            ${ollama}/bin/ollama pull nomic-embed-text --local
+          '';
+          wrapped = pkgs.writeShellScriptBin "ollama" ''
+            export HOME="${models}"
+            export OLLAMA_MODELS="${models}/.ollama/models"
+            exec ${ollama}/bin/ollama "$@"
+          '';
+        in
+        pkgs.symlinkJoin {
+          name = "ollama";
+          paths = [
+            models
+            wrapped
+            ollama
+          ];
+        };
+
       forAllSystems = f: nixpkgs.lib.genAttrs allSystems (system: f {
         system = system;
         pkgs = import nixpkgs {
           inherit system;
           overlays = [
-            (self: super: {
-              rqlite = super.pkgs.callPackage ./rqlite.nix { };
+            (final: prev: {
+              rqlite = prev.pkgs.callPackage ./rqlite.nix { };
             })
-            # Use latest version of ollama, because it's a bit more
+            # Use ollama from unstableNixPkgs, because it's a bit more
             # bleeding edge.
-            (self: super: {
-              ollama = (unstableNixPkgs system).ollama.override
-                (oldAttrs: {
-                  acceleration =
-                    if system == "aarch64-darwin" || system == "x86_64-darwin" # If darwin, use metal.
-                    then null
-                    else "cuda"; # If linux, use cuda. (change manually to "rocm" for AMD GPUs)
-                });
+            (final: prev: {
+              ollama = (wrappedOllama system (unstableNixPkgs system));
             })
           ];
         };

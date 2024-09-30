@@ -96,7 +96,7 @@ wget https://github.com/asg017/sqlite-vec/releases/download/v0.1.1/sqlite-vec-0.
 ### db-run
 
 ```bash
-rqlited -auth=auth.json -extensions-path=sqlite-vec.tar.gz ~/strategy-node.1
+rqlited -auth=auth.json -extensions-path=sqlite-vec.tar.gz ~/ragmark-node.1
 ```
 
 ### db-migration-create

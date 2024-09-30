@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -114,13 +113,8 @@ func (q *Queries) ChunkDelete(ctx context.Context, args ChunkDeleteArgs) (err er
 			Arguments: []any{args.Path},
 		},
 	}
-	results, err := q.conn.WriteParameterizedContext(ctx, statements)
-	if err != nil {
-		var errs []error
-		for _, result := range results {
-			errs = append(errs, result.Err)
-		}
-		return errors.Join(errs...)
+	if _, err = q.conn.WriteParameterizedContext(ctx, statements); err != nil {
+		return err
 	}
 	return nil
 }
@@ -155,13 +149,8 @@ func (q *Queries) ChunkInsert(ctx context.Context, args ChunkInsertArgs) (err er
 		}
 		chunkIndex++
 	}
-	results, err := q.conn.WriteParameterizedContext(ctx, statements)
-	if err != nil {
-		var errs []error
-		for _, result := range results {
-			errs = append(errs, result.Err)
-		}
-		return errors.Join(errs...)
+	if _, err = q.conn.WriteParameterizedContext(ctx, statements); err != nil {
+		return err
 	}
 	return nil
 }
@@ -294,4 +283,76 @@ func (q *Queries) ChunkSelectNearest(ctx context.Context, args ChunkSelectNeares
 		chunks = append(chunks, chunk)
 	}
 	return chunks, nil
+}
+
+type Triple struct {
+	Subject   string `json:"s"`
+	Predicate string `json:"p"`
+	Object    string `json:"o"`
+}
+
+func (q *Queries) TripleUpsert(ctx context.Context, triple Triple) (err error) {
+	tripleJSON, err := json.Marshal(triple)
+	if err != nil {
+		return fmt.Errorf("failed to marshal triple: %w", err)
+	}
+	_, err = q.conn.WriteOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
+		Query:     `insert or replace into triple (triple) values (?)`,
+		Arguments: []any{string(tripleJSON)},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upsert triple: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) TripleDelete(ctx context.Context, triple Triple) (err error) {
+	_, err = q.conn.WriteOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
+		Query:     `delete from triple where subject = ? and predicate = ? and object = ?`,
+		Arguments: []any{triple.Subject, triple.Predicate, triple.Object},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete triple: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) TripleSelectSubject(ctx context.Context, subject string) (triples []Triple, err error) {
+	result, err := q.conn.QueryOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
+		Query:     `select triple from triple where subject = ?`,
+		Arguments: []any{subject},
+	})
+	if err != nil {
+		return triples, err
+	}
+	for result.Next() {
+		var tripleJSON string
+		if err = result.Scan(&tripleJSON); err != nil {
+			return triples, err
+		}
+		var triple Triple
+		if err = json.Unmarshal([]byte(tripleJSON), &triple); err != nil {
+			return triples, fmt.Errorf("failed to unmarshal triple: %w", err)
+		}
+		triples = append(triples, triple)
+	}
+	return triples, nil
+}
+
+func (q *Queries) TripleSelectObject(ctx context.Context, object string) (triples []Triple, err error) {
+	result, err := q.conn.QueryOneParameterizedContext(ctx, gorqlite.ParameterizedStatement{
+		Query:     `select triple from triple where object = ?`,
+		Arguments: []any{object},
+	})
+	if err != nil {
+		return triples, err
+	}
+	for result.Next() {
+		var triple Triple
+		if err = result.Scan(&triple); err != nil {
+			return triples, err
+		}
+		triples = append(triples, triple)
+	}
+	return triples, nil
 }

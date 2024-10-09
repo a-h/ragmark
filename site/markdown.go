@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	goldmarkd2 "github.com/FurqanSoftware/goldmark-d2"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -172,8 +173,9 @@ func (p *Markdown) setMetadataDefaults() {
 }
 
 var gmExtensions = []goldmark.Extender{
-	extension.Table,
-	&frontmatter.Extender{},
+	extension.Table,         // Provides tables.
+	&frontmatter.Extender{}, // Enables frontmatter parsing.
+	&goldmarkd2.Extender{},  // Provides D2 rendering for diagrams.
 }
 var gm = goldmark.New(
 	goldmark.WithParserOptions(parser.WithAutoHeadingID()),

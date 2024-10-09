@@ -1,18 +1,26 @@
 package templates
 
-import "github.com/a-h/ragmark/urlbuilder"
+import (
+	"fmt"
+	"github.com/a-h/ragmark/urlbuilder"
+)
 
-templ ChatForm(prompt string) {
-	@templ.Flush() {
-		<h1>Chatbot</h1>
-		<form>
+templ ChatForm(prompt string, noContext bool) {
+	<h1>Chatbot</h1>
+	<form>
+		<div>
+			<label for="prompt">Prompt</label>
 			<input type="text" name="prompt" size="50" autocomplete="off"/>
-			<button type="submit">Send</button>
-		</form>
-		if prompt != "" {
-			<blockquote>{ prompt }</blockquote>
-			<h2>✨ AI response</h2>
-			<div class="chat-response" hx-ext="sse" sse-connect={ urlbuilder.Path("/chat/response").Query("prompt", prompt).String() } hx-swap="innerHTML" sse-swap="message" sse-close="end"></div>
-		}
+		</div>
+		<div>
+			<label for="no-context">Ignore context</label>
+			<input type="checkbox" name="no-context" checked?={ noContext } value="true"/>
+		</div>
+		<button type="submit">Send</button>
+	</form>
+	if prompt != "" {
+		<blockquote>{ prompt }</blockquote>
+		<h2>✨ AI response</h2>
+		<div class="chat-response" hx-ext="sse" sse-connect={ urlbuilder.Path("/chat/response").Query("prompt", prompt).Query("no-context", fmt.Sprintf("%v", noContext)).String() } hx-swap="innerHTML" sse-swap="message" sse-close="end"></div>
 	}
 }

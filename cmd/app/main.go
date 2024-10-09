@@ -9,13 +9,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 
 	ollamaapi "github.com/ollama/ollama/api"
 
 	"github.com/a-h/ragmark/chat"
 	"github.com/a-h/ragmark/db"
 	"github.com/a-h/ragmark/indexer"
+	"github.com/a-h/ragmark/prompts"
 	"github.com/a-h/ragmark/rag"
 	"github.com/a-h/ragmark/site"
 	"github.com/a-h/ragmark/templates"
@@ -132,24 +132,15 @@ func chatCmd(ctx context.Context) (err error) {
 		}
 	}
 
-	var sb strings.Builder
-	sb.WriteString("Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.\n")
-
-	for _, doc := range chunks {
-		sb.WriteString(fmt.Sprintf("Context from %s:\n%s\n\n", doc.Path, doc.Text))
-	}
-	sb.WriteString("Question: ")
-	sb.WriteString(*msg)
-	sb.WriteString("\nSuccint Answer: ")
-
-	log.Info("starting chat", slog.String("prompt", sb.String()), slog.Int("kb", len(sb.String())/1024))
+	prompt := prompts.Chat(chunks, *msg)
+	log.Info("starting chat", slog.String("prompt", prompt), slog.Int("kb", len(prompt)/1024))
 
 	req := &ollamaapi.ChatRequest{
 		Model: *model,
 		Messages: []ollamaapi.Message{
 			{
 				Role:    "user",
-				Content: sb.String(),
+				Content: prompt,
 			},
 		},
 	}
@@ -163,6 +154,7 @@ func chatCmd(ctx context.Context) (err error) {
 func indexCmd(ctx context.Context) (err error) {
 	flags := flag.NewFlagSet("index", flag.ExitOnError)
 	embeddingModel := flags.String("embedding-model", "nomic-embed-text", "The model to use for embeddings.")
+	chatModel := flags.String("chat-model", "mistral-nemo", "The model to chat with.")
 	level := flags.String("level", "info", "The log level to use, set to info for additional logs")
 	baseURL := flags.String("base-url", "/", "The base URL of the site")
 	title := flags.String("title", "ragmark site", "Title of site")
@@ -215,7 +207,7 @@ func indexCmd(ctx context.Context) (err error) {
 		return fmt.Errorf("failed to create content walker: %w", err)
 	}
 
-	idx := indexer.New(log, queries, oc, *embeddingModel)
+	idx := indexer.New(log, queries, oc, *embeddingModel, *chatModel)
 	return idx.Index(ctx, site)
 }
 

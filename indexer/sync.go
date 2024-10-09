@@ -8,26 +8,28 @@ import (
 	"time"
 
 	"github.com/a-h/ragmark/db"
+	"github.com/a-h/ragmark/prompts"
 	"github.com/a-h/ragmark/site"
 	"github.com/a-h/ragmark/splitter"
 	ollamaapi "github.com/ollama/ollama/api"
 )
 
-func New(log *slog.Logger, queries *db.Queries, oc *ollamaapi.Client, model string) *Indexer {
+func New(log *slog.Logger, queries *db.Queries, oc *ollamaapi.Client, embeddingModel, chatModel string) *Indexer {
 	return &Indexer{
-		Log:     log,
-		Model:   model,
-		queries: queries,
-		oc:      oc,
+		Log:            log,
+		EmbeddingModel: embeddingModel,
+		ChatModel:      chatModel,
+		queries:        queries,
+		oc:             oc,
 	}
 }
 
 type Indexer struct {
-	Log *slog.Logger
-	// Model to use for embeddings.
-	Model   string
-	queries *db.Queries
-	oc      *ollamaapi.Client
+	Log            *slog.Logger
+	EmbeddingModel string
+	ChatModel      string
+	queries        *db.Queries
+	oc             *ollamaapi.Client
 }
 
 func (indexer Indexer) Index(ctx context.Context, site *site.Site) (err error) {
@@ -70,6 +72,28 @@ func (indexer Indexer) Index(ctx context.Context, site *site.Site) (err error) {
 			return fmt.Errorf("failed to upsert document fts index: %w", err)
 		}
 
+		// Extract type.
+		typePrompt, err := prompts.ExtractType(text)
+		if err != nil {
+			return fmt.Errorf("failed to create type prompt: %w", err)
+		}
+		var typeResponse strings.Builder
+		indexer.oc.Chat(ctx, &ollamaapi.ChatRequest{
+			Model: indexer.ChatModel,
+			Messages: []ollamaapi.Message{
+				{
+					Role:      "user",
+					Content:   typePrompt,
+					Images:    []ollamaapi.ImageData{},
+					ToolCalls: []ollamaapi.ToolCall{},
+				},
+			},
+		},
+			func(resp ollamaapi.ChatResponse) error {
+				typeResponse.WriteString(resp.Message.Content)
+				return nil
+			})
+
 		chunks := splitter.Split(text)
 		indexer.Log.Info("processing document chunks", slog.Int("count", len(chunks)))
 
@@ -77,7 +101,7 @@ func (indexer Indexer) Index(ctx context.Context, site *site.Site) (err error) {
 		chunkInsertArgs.Chunks = make([]db.Chunk, len(chunks))
 		indexer.Log.Info("getting embeddings")
 		embeddings, err := indexer.oc.Embed(ctx, &ollamaapi.EmbedRequest{
-			Model: indexer.Model,
+			Model: indexer.EmbeddingModel,
 			Input: chunks,
 		})
 		if err != nil {

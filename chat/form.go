@@ -23,7 +23,9 @@ type FormHandler struct {
 func (h FormHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	left := templates.Left(h.Site)
-	middle := templates.ChatForm(r.FormValue("prompt"))
+	noContext := r.FormValue("no-context") == "true"
+	prompt := r.FormValue("prompt")
+	middle := templates.ChatForm(prompt, noContext)
 	right := templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		return nil
 	})

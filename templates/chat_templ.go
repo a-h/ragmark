@@ -8,9 +8,12 @@ package templates
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/a-h/ragmark/urlbuilder"
+import (
+	"fmt"
+	"github.com/a-h/ragmark/urlbuilder"
+)
 
-func ChatForm(prompt string) templ.Component {
+func ChatForm(prompt string, noContext bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -43,7 +46,17 @@ func ChatForm(prompt string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString("<h1>Chatbot</h1><form><input type=\"text\" name=\"prompt\" size=\"50\" autocomplete=\"off\"> <button type=\"submit\">Send</button></form>")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString("<h1>Chatbot</h1><form><div><label for=\"prompt\">Prompt</label> <input type=\"text\" name=\"prompt\" size=\"50\" autocomplete=\"off\"></div><div><label for=\"no-context\">Ignore context</label> <input type=\"checkbox\" name=\"no-context\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if noContext {
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(" checked")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(" value=\"true\"></div><button type=\"submit\">Send</button></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -55,7 +68,7 @@ func ChatForm(prompt string) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(prompt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/chat.templ`, Line: 13, Col: 23}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/chat.templ`, Line: 23, Col: 23}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -66,9 +79,9 @@ func ChatForm(prompt string) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var4 string
-				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(urlbuilder.Path("/chat/response").Query("prompt", prompt).String())
+				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(urlbuilder.Path("/chat/response").Query("prompt", prompt).Query("no-context", fmt.Sprintf("%v", noContext)).String())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/chat.templ`, Line: 15, Col: 123}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/chat.templ`, Line: 25, Col: 173}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {

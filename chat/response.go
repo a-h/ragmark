@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/a-h/ragmark/db"
+	"github.com/a-h/ragmark/prompts"
 	"github.com/a-h/ragmark/rag"
 	ollamaapi "github.com/ollama/ollama/api"
 	"github.com/yuin/goldmark"
@@ -61,22 +62,12 @@ func (h ResponseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var sb strings.Builder
-	sb.WriteString("Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.\n")
-
-	for _, doc := range chunks {
-		sb.WriteString(fmt.Sprintf("Context from %s:\n%s\n\n", doc.Path, doc.Text))
-	}
-	sb.WriteString("Question: ")
-	sb.WriteString(prompt)
-	sb.WriteString("\nSuccinct Answer: ")
-
 	req := &ollamaapi.ChatRequest{
 		Model: h.ChatModel,
 		Messages: []ollamaapi.Message{
 			{
 				Role:    "user",
-				Content: sb.String(),
+				Content: prompts.Chat(chunks, prompt),
 			},
 		},
 	}

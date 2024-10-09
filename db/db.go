@@ -266,9 +266,6 @@ func (q *Queries) ChunkSelectNearest(ctx context.Context, args ChunkSelectNeares
 	}
 	result, err := q.conn.QueryOneParameterizedContext(ctx, stmt)
 	if err != nil {
-		if result.Err != nil {
-			return chunks, result.Err
-		}
 		return chunks, err
 	}
 	for result.Next() {
